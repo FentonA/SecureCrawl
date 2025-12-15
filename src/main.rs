@@ -1,4 +1,5 @@
 mod crawler;
+mod scanner;
 use anyhow::Result;
 use clap::Parser;
 
