@@ -18,6 +18,7 @@ use crawler::frontier::UrlFrontier;
 use crawler::rate_limiter::DomainRateLimiter;
 use crawler::robots::RobotsChecker;
 use scanner::engine::{SENSITIVE_PATHS, SecurityScanner};
+use scanner::{dns, subdomains, tls};
 
 #[derive(Debug, Clone)]
 pub struct ScanOpts {
@@ -78,6 +79,20 @@ pub async fn run_scan(opts: ScanOpts) -> Result<ScanReport> {
 
     let seed_url = Url::parse(&opts.url).context("Invalid seed URL")?;
     let base_domain = seed_url.host_str().unwrap_or("").to_string();
+
+    // ── Kick off domain-level checks in parallel with the crawl ──────
+    let dns_handle = tokio::spawn({
+        let d = base_domain.clone();
+        async move { dns::check(&d).await }
+    });
+    let tls_handle = tokio::spawn({
+        let d = base_domain.clone();
+        async move { tls::check(&d).await }
+    });
+    let subdomains_handle = tokio::spawn({
+        let d = base_domain.clone();
+        async move { subdomains::discover(&d).await }
+    });
 
     let client = reqwest::Client::builder()
         .user_agent(&opts.user_agent)
@@ -180,6 +195,17 @@ pub async fn run_scan(opts: ScanOpts) -> Result<ScanReport> {
 
     while let Ok(findings) = finding_rx.try_recv() {
         all_findings.extend(findings);
+    }
+
+    // ── Collect domain-level check results ───────────────────────────
+    if let Ok(dns_findings) = dns_handle.await {
+        all_findings.extend(dns_findings);
+    }
+    if let Ok(tls_findings) = tls_handle.await {
+        all_findings.extend(tls_findings);
+    }
+    if let Ok(subdomain_findings) = subdomains_handle.await {
+        all_findings.extend(subdomain_findings);
     }
 
     all_findings.sort_by_key(|f| match f.severity {
