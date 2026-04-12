@@ -1,0 +1,8 @@
+target/
+.git/
+.github/
+.claude/
+*.md
+fly.toml
+.dockerignore
+Dockerfile
