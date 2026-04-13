@@ -1,6 +1,7 @@
 pub mod crawler;
 pub mod report;
 pub mod scanner;
+pub mod supabase_writer;
 
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Instant;
@@ -73,7 +74,15 @@ async fn scanner_worker(
 /// Run a full crawl + scan against the target described by `opts`.
 ///
 /// Prints nothing to stdout — callers can wrap with their own progress UI.
-pub async fn run_scan(opts: ScanOpts) -> Result<ScanReport> {
+///
+/// If `sink` is `Some`, each batch of findings is forwarded through the
+/// channel as soon as it's discovered, in addition to being collected
+/// into the returned ScanReport. The caller can use this to stream
+/// findings to a persistent store while the scan is still running.
+pub async fn run_scan(
+    opts: ScanOpts,
+    sink: Option<tokio::sync::mpsc::Sender<Vec<Finding>>>,
+) -> Result<ScanReport> {
     let start_time = Instant::now();
     let start_iso = chrono::Utc::now().to_rfc3339();
 
@@ -127,6 +136,9 @@ pub async fn run_scan(opts: ScanOpts) -> Result<ScanReport> {
 
     loop {
         while let Ok(findings) = finding_rx.try_recv() {
+            if let Some(ref s) = sink {
+                let _ = s.send(findings.clone()).await;
+            }
             all_findings.extend(findings);
         }
 
@@ -194,18 +206,36 @@ pub async fn run_scan(opts: ScanOpts) -> Result<ScanReport> {
     scanner_handle.await.context("Scanner worker panicked")?;
 
     while let Ok(findings) = finding_rx.try_recv() {
+        if let Some(ref s) = sink {
+            let _ = s.send(findings.clone()).await;
+        }
         all_findings.extend(findings);
     }
 
     // ── Collect domain-level check results ───────────────────────────
     if let Ok(dns_findings) = dns_handle.await {
-        all_findings.extend(dns_findings);
+        if !dns_findings.is_empty() {
+            if let Some(ref s) = sink {
+                let _ = s.send(dns_findings.clone()).await;
+            }
+            all_findings.extend(dns_findings);
+        }
     }
     if let Ok(tls_findings) = tls_handle.await {
-        all_findings.extend(tls_findings);
+        if !tls_findings.is_empty() {
+            if let Some(ref s) = sink {
+                let _ = s.send(tls_findings.clone()).await;
+            }
+            all_findings.extend(tls_findings);
+        }
     }
     if let Ok(subdomain_findings) = subdomains_handle.await {
-        all_findings.extend(subdomain_findings);
+        if !subdomain_findings.is_empty() {
+            if let Some(ref s) = sink {
+                let _ = s.send(subdomain_findings.clone()).await;
+            }
+            all_findings.extend(subdomain_findings);
+        }
     }
 
     all_findings.sort_by_key(|f| match f.severity {
