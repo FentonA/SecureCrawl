@@ -29,6 +29,9 @@ pub enum FindingType {
     SensitiveFile,
     MissingSecurityHeader,
     InformationDisclosure,
+    DnsMisconfiguration,
+    TlsIssue,
+    SubdomainDiscovered,
 }
 
 impl std::fmt::Display for FindingType {
@@ -38,6 +41,9 @@ impl std::fmt::Display for FindingType {
             FindingType::SensitiveFile => write!(f, "Sensitive File"),
             FindingType::MissingSecurityHeader => write!(f, "Missing Security Header"),
             FindingType::InformationDisclosure => write!(f, "Information Disclosure"),
+            FindingType::DnsMisconfiguration => write!(f, "DNS Misconfiguration"),
+            FindingType::TlsIssue => write!(f, "TLS Issue"),
+            FindingType::SubdomainDiscovered => write!(f, "Subdomain Discovered"),
         }
     }
 }
