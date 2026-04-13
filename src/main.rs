@@ -91,7 +91,7 @@ async fn main() -> Result<()> {
         cross_domain: args.cross_domain,
     };
 
-    let report = run_scan(opts).await?;
+    let report = run_scan(opts, None).await?;
 
     progress.finish_and_clear();
 
